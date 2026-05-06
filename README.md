@@ -94,7 +94,18 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+Or via Make: `make install && make run`.
+
 The app opens at `http://localhost:8501`. No `.env`, no API keys, no extra setup. Click **Run eval** with the defaults and you should see avg A 2.21 → avg B 3.88, 20 wins, 3 regressions, ties 1, recommendation **SHIP WITH CAVEAT**. Open the failed-cases explorer to see the 3 regressions: an over-escalated billing duplicate, a vague 90-day-return reply, and an over-promised damaged-item handoff.
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+make test     # or: python -m pytest tests/ -v
+```
+
+96 unit tests cover the rubric scorers, validators, recommendation truth table, `run_eval` integration, and `save_run` filename uniqueness. The most important test is `tests/test_demo_baseline.py`, which pins the headline benchmark numbers (avg A 2.21, avg B 3.88, 3 regressions, SHIP WITH CAVEAT). If you tune a regex in `scorers.py` or a comparator in `eval_engine.py` and the demo numbers drift, this test fails before the README's claims drift out of sync. CI runs the full suite on every push and PR via [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on Python 3.10, 3.11, and 3.12.
 
 ## PM artifacts
 

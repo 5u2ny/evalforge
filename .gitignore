@@ -4,7 +4,11 @@ venv/
 __pycache__/
 *.pyc
 data/runs/*.jsonl
+data/runs/*.log
 .DS_Store
 .streamlit/secrets.toml
 *.egg-info/
 .pytest_cache/
+.coverage
+htmlcov/
+.claude/

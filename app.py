@@ -6,6 +6,8 @@ No paid APIs, no API keys, no .env. All scoring is local.
 
 from __future__ import annotations
 
+import logging
+import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -23,10 +25,37 @@ DEFAULT_OUTPUTS_B = ROOT / "data" / "sample_outputs_b.jsonl"
 DEFAULT_PROMPT_A = ROOT / "prompts" / "support_prompt_a.txt"
 DEFAULT_PROMPT_B = ROOT / "prompts" / "support_prompt_b.txt"
 RUNS_DIR = ROOT / "data" / "runs"
+LOG_PATH = RUNS_DIR / "eval.log"
+
+
+def _configure_logging() -> None:
+    if logging.getLogger("evalforge").handlers:
+        return
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        handlers=[
+            logging.FileHandler(LOG_PATH, encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
+    )
+
+
+_configure_logging()
+log = logging.getLogger("evalforge.app")
+
+
+@st.cache_data(show_spinner=False)
+def _read_text_cached(path_str: str, mtime: float) -> str:
+    p = Path(path_str)
+    return p.read_text(encoding="utf-8") if p.exists() else ""
 
 
 def _read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8") if path.exists() else ""
+    if not path.exists():
+        return ""
+    return _read_text_cached(str(path), path.stat().st_mtime)
 
 
 def _load_default_outputs(path: Path) -> Optional[List[Dict[str, Any]]]:
@@ -173,6 +202,16 @@ def render_leaderboard(summary: Dict[str, Any]) -> None:
     else:
         lat_winner = "unavailable"
 
+    paired_n = summary.get("paired_n", summary["n_cases"])
+    dataset_n = summary.get("dataset_n", paired_n)
+    if dataset_n != paired_n:
+        st.warning(
+            f"Only {paired_n} of {dataset_n} dataset cases were evaluated. "
+            f"Variant A missing {summary.get('missing_outputs_a', 0)} outputs; "
+            f"Variant B missing {summary.get('missing_outputs_b', 0)}. "
+            "The leaderboard reflects the paired subset only."
+        )
+
     rows = [
         {
             "Metric": "Average quality (1-5)",
@@ -183,7 +222,7 @@ def render_leaderboard(summary: Dict[str, Any]) -> None:
         {"Metric": "Wins (B better)", a_name: "—", b_name: summary["wins_b"], "Winner": "—"},
         {"Metric": "Regressions (B worse)", a_name: "—", b_name: summary["regressions_b"], "Winner": "—"},
         {"Metric": "Ties", a_name: summary["ties"], b_name: summary["ties"], "Winner": "—"},
-        {"Metric": "Cases evaluated", a_name: summary["n_cases"], b_name: summary["n_cases"], "Winner": "—"},
+        {"Metric": "Cases evaluated", a_name: paired_n, b_name: paired_n, "Winner": "—"},
         {"Metric": "Average latency", a_name: lat_a_str, b_name: lat_b_str, "Winner": lat_winner},
         {"Metric": "Local evaluation cost", a_name: "$0.00", b_name: "$0.00", "Winner": "—"},
     ]
@@ -278,6 +317,7 @@ def render_results_table(result: Dict[str, Any]) -> None:
             "score": r["quality_score"],
             "latency_ms": r["latency_ms"] if r["latency_ms"] is not None else "unavailable",
             "scoring_method": r["scoring_method"],
+            "missing_output": r.get("missing_output", False),
             "output_preview": (r["output"] or "")[:140],
         })
     df = pd.DataFrame(rows).sort_values(["case_id", "variant"])
@@ -372,16 +412,19 @@ def main() -> None:
         st.stop()
 
     dataset_ids = {c["id"] for c in dataset}
-    ok_a, err_a = validate_outputs(outputs_a, dataset_ids)
-    ok_b, err_b = validate_outputs(outputs_b, dataset_ids)
-    if err_a:
-        st.warning("Variant A output issues:")
-        for e in err_a:
-            st.write(f"- {e}")
-    if err_b:
-        st.warning("Variant B output issues:")
-        for e in err_b:
-            st.write(f"- {e}")
+    err_a, warn_a = validate_outputs(outputs_a, dataset_ids)
+    err_b, warn_b = validate_outputs(outputs_b, dataset_ids)
+    blocking = bool(err_a or err_b)
+    for label, errors, warnings in (("Variant A", err_a, warn_a), ("Variant B", err_b, warn_b)):
+        if errors:
+            st.error(f"{label} blocking issues:")
+            for e in errors:
+                st.write(f"- {e}")
+        for w in warnings:
+            st.warning(f"{label}: {w}")
+    if blocking:
+        st.info("Fix the blocking issues above before running the eval.")
+        st.stop()
 
     variant_a = {
         "label": "A",
@@ -400,13 +443,21 @@ def main() -> None:
 
     st.markdown("---")
     if st.button("Run eval", type="primary"):
-        with st.spinner("Scoring locally…"):
-            result = run_eval(dataset, variant_a, variant_b)
+        try:
+            with st.spinner("Scoring locally…"):
+                result = run_eval(dataset, variant_a, variant_b)
+        except Exception as e:
+            log.exception("run_eval failed")
+            st.error(f"Eval failed: {e}")
+            with st.expander("Traceback"):
+                st.code(traceback.format_exc())
+            st.stop()
         st.session_state["last_result"] = result
         try:
             saved = save_run(result, RUNS_DIR)
             st.session_state["last_run_path"] = str(saved.relative_to(ROOT))
         except Exception as e:
+            log.exception("save_run failed")
             st.warning(f"Could not save run: {e}")
 
     result = st.session_state.get("last_result")

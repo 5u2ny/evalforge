@@ -13,3 +13,8 @@
 | 9 | Output JSONL drift between dataset and outputs | Medium | Medium | Validator surfaces missing or extra `case_id` values as a warning before the run. |
 | 10 | Reviewer fatigue when the failed-cases list is long | Medium | Medium | Decision memo highlights only the top 3 failed cases by score delta; full list is still browsable. |
 | 11 | False sense of release safety from a SHIP recommendation | Medium | High | Recommendation always names risks even when the label is SHIP; reviewers are nudged to spot-check. |
+| 12 | Recommendation flips on rounding noise | Low | High | `generate_recommendation` compares raw averages with an explicit epsilon (`RECOMMENDATION_EPSILON = 0.05`); a covering test pins the behaviour. |
+| 13 | Bundled-demo headline numbers drift after a regex tweak | Medium | High | `tests/test_demo_baseline.py` asserts the README-claimed numbers; CI fails before the README claim drifts. |
+| 14 | Two saves in the same second silently overwrite | Low | Medium | `save_run` now appends a uuid suffix to the filename; covered by a unit test. |
+| 15 | Eval engine assumes pre-validated dataset | Low | Medium | `_evaluate_variant` raises explicit `ValueError` for missing `id`/`expected`; covered by tests. |
+| 16 | Rubric pattern matches quoted user content | Low | Medium | Documented assumption in the `scorers.py` module docstring: agent text only. |
