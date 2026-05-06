@@ -674,15 +674,64 @@ def outputs_loader_ui(
         help="Bundled sample outputs are not generated live. They ship with the repo for demonstration.",
     )
     if use_default:
-        rows = _load_default_outputs(default_path)
-        if rows is None:
+        bundled = _load_default_outputs(default_path)
+        if bundled is None:
             st.error(f"Default outputs missing at {default_path}.")
             return None
         st.caption(
-            f"Sample outputs loaded ({len(rows)} rows). Labelled as bundled "
+            f"Sample outputs loaded ({len(bundled)} rows). Labelled as bundled "
             "sample data, not live generation."
         )
-        return rows
+
+        # Inline editor — override any case's output without leaving the page.
+        # Edits live in session_state via the text_area key, so the run is
+        # always built from the current text-area values regardless of
+        # whether the expander is open or collapsed.
+        bundled_by_id = {r["case_id"]: r for r in bundled}
+        edited: List[Dict[str, Any]] = []
+        any_changes = False
+
+        with st.expander(f"✎ Edit individual {label} outputs ({len(bundled)} cases)"):
+            cols = st.columns([4, 1])
+            cols[0].caption(
+                "Change any case's output to see how the score reacts. "
+                "Run the eval again after editing."
+            )
+            if cols[1].button("Reset all", key=f"{key_prefix}_reset", use_container_width=True):
+                for case in dataset:
+                    k = f"{key_prefix}_edit_{case['id']}"
+                    if k in st.session_state:
+                        del st.session_state[k]
+                st.rerun()
+
+            for case in dataset:
+                cid = case["id"]
+                base = bundled_by_id.get(cid, {"case_id": cid, "output": ""})
+                bundled_text = base.get("output", "")
+                new_text = st.text_area(
+                    f"{cid}  ·  {case.get('category', '')}",
+                    value=bundled_text,
+                    key=f"{key_prefix}_edit_{cid}",
+                    height=72,
+                    help=(
+                        f"Input: {case.get('input', '')}\n\n"
+                        f"Expected: {case.get('expected', '')}"
+                    ),
+                )
+                edited_row = {"case_id": cid, "output": new_text}
+                if "latency_ms" in base:
+                    edited_row["latency_ms"] = base["latency_ms"]
+                edited.append(edited_row)
+                if new_text != bundled_text:
+                    any_changes = True
+
+        if any_changes:
+            st.caption(
+                f"📝 {label} has unsaved edits to bundled outputs. "
+                "Run the eval to see updated scores."
+            )
+            return edited
+        return bundled
 
     mode = st.radio(
         f"Provide {label} outputs via",
@@ -952,7 +1001,9 @@ def main() -> None:
         "Prompts below are saved with the run for traceability. "
         "EvalForge v1 does not regenerate outputs &mdash; it scores the "
         "**outputs** you provide against `expected` from the dataset. "
-        "Edit the **outputs** (not the prompt) to see scores change.",
+        "To change scores, expand **✎ Edit individual outputs** under each "
+        "variant and tweak the case-level outputs directly, or upload a new "
+        "JSONL.",
     )
     col_a, col_b = st.columns(2)
 
