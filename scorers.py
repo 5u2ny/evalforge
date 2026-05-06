@@ -115,7 +115,94 @@ def _empty_breakdown(policy_safe: bool = True) -> Dict[str, bool]:
 
 
 def score_rubric(output: str, expected: str) -> Dict[str, Any]:
-    """Score an output 1-5 using deterministic heuristics.
+    """Generic, domain-agnostic rubric (1-5).
+
+    Scores semantic overlap between ``output`` and the significant words in
+    ``expected``. This is the default scorer for any dataset because it makes
+    no assumptions about the domain (customer support, summarisation, QA,
+    code, etc.).
+
+    Use ``rubric_support`` instead when your dataset is customer-support
+    replies and you want to grade empathy, next-action clarity, and
+    policy-safety on top of coverage.
+
+    Coverage thresholds:
+      ratio >= 0.65 -> 5
+      ratio >= 0.40 -> 4
+      ratio >= 0.20 -> 3
+      ratio >  0.00 -> 2
+      ratio == 0.00 -> 1
+    """
+    if not output or not output.strip():
+        return {
+            "score": 1,
+            "reasoning": "Score 1/5. Output is empty.",
+            "breakdown": {
+                "expected_coverage": False,
+                "coverage_ratio": 0.0,
+                "non_trivial_output": False,
+            },
+        }
+
+    expected_words = _significant_words(expected)
+    output_tokens = _tokenize(output)
+    output_words = set(output_tokens)
+    non_trivial = len(output_tokens) >= 3
+
+    if not expected_words:
+        score = 3 if non_trivial else 1
+        return {
+            "score": score,
+            "reasoning": (
+                "No significant keywords in `expected` to compare against; "
+                "scored on output presence only."
+            ),
+            "breakdown": {
+                "expected_coverage": False,
+                "coverage_ratio": 0.0,
+                "non_trivial_output": non_trivial,
+            },
+        }
+
+    overlap = len(expected_words & output_words)
+    ratio = overlap / len(expected_words)
+
+    if ratio >= 0.65:
+        score = 5
+    elif ratio >= 0.40:
+        score = 4
+    elif ratio >= 0.20:
+        score = 3
+    elif ratio > 0:
+        score = 2
+    else:
+        score = 1
+
+    if not non_trivial and score > 1:
+        score = max(1, score - 1)
+
+    return {
+        "score": score,
+        "reasoning": (
+            f"Score {score}/5. Coverage {overlap}/{len(expected_words)} "
+            f"significant tokens ({ratio:.0%})."
+        ),
+        "breakdown": {
+            "expected_coverage": ratio >= COVERAGE_RATIO_THRESHOLD,
+            "coverage_ratio": round(ratio, 2),
+            "non_trivial_output": non_trivial,
+        },
+    }
+
+
+def score_rubric_support(output: str, expected: str) -> Dict[str, Any]:
+    """Customer-support specific rubric (1-5).
+
+    Adds empathy, next-action, policy-safety, and invents-details checks on
+    top of the generic coverage metric. Tuned for customer-support replies;
+    do not use for other domains — the regex heuristics are English support
+    vocabulary ("sorry", "guarantee a refund", "free month") and will give
+    misleading scores on summarisation, code, classification, etc.
 
     Rubric dimensions returned in ``breakdown``:
     - expected_coverage: enough significant words from `expected` appear in output
@@ -252,7 +339,8 @@ def score_contains(output: str, expected: str) -> Dict[str, Any]:
 
 
 SCORERS = {
-    "rubric": score_rubric,
+    "rubric": score_rubric,                  # generic, domain-agnostic
+    "rubric_support": score_rubric_support,  # customer-support specific
     "exact_match": score_exact_match,
     "contains": score_contains,
 }

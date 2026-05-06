@@ -98,6 +98,21 @@ Or via Make: `make install && make run`.
 
 The app opens at `http://localhost:8501`. No `.env`, no API keys, no extra setup. Click **Run eval** with the defaults and you should see avg A 2.21 → avg B 3.88, 20 wins, 3 regressions, ties 1, recommendation **SHIP WITH CAVEAT**. Open the failed-cases explorer to see the 3 regressions: an over-escalated billing duplicate, a vague 90-day-return reply, and an over-promised damaged-item handoff.
 
+## Scoring methods
+
+Each dataset row declares its `scoring_method`. Choose the one that fits your data:
+
+| Method | When to use | What it scores |
+|---|---|---|
+| `rubric` | **Default. Any domain.** Summarisation, QA, code, classification, etc. | Semantic overlap between output and `expected` significant words → 1–5. |
+| `rubric_support` | Customer-support replies only. | Coverage **plus** empathy markers, next-action clarity, policy-safety, and detection of unsupported promises and invented details. The bundled demo uses this because the cases are support-flavoured. |
+| `exact_match` | Output must equal `expected` exactly. Classification labels, structured extractions. | 5 if equal after `.strip()`, else 1. |
+| `contains` | Output must include a keyword phrase from `expected`. Fact-extraction, key-phrase QA. | 5 full match, 3 partial, 1 missing. |
+
+If you use the support rubric on non-support data the heuristics will misfire — every output will look "missing empathy" and score badly. The UI shows a hint when both averages drop below 1.6/5, which usually means the rubric is wrong for the data.
+
+**Important:** the prompt textareas in the UI are saved with the run for traceability but **do not regenerate outputs**. EvalForge v1 evaluates the outputs you provide; it does not call any model. To see scores change, edit the **outputs** (upload new JSONL or paste a new variant), not the prompt.
+
 ## Tests
 
 ```bash

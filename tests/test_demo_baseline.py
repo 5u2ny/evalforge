@@ -93,5 +93,13 @@ def test_breakdown_schema_includes_invents_details(baseline):
     # Every rubric-scored row must expose the invents_details dimension so
     # the UI breakdown JSON is stable across updates.
     for row in baseline["rows_a"] + baseline["rows_b"]:
-        if row["scoring_method"] == "rubric":
+        if row["scoring_method"] == "rubric_support":
             assert "invents_details" in row["rubric_breakdown"]
+
+
+def test_dataset_uses_rubric_support_scoring(baseline):
+    # The bundled dataset is customer-support specific. The cases must use
+    # rubric_support, not the generic rubric, so the demo numbers stay
+    # consistent with the README and the failed-cases narrative.
+    methods = {row["scoring_method"] for row in baseline["rows_a"]}
+    assert methods == {"rubric_support"}

@@ -756,6 +756,17 @@ def render_metrics(summary: Dict[str, Any]) -> None:
             "Metrics below reflect the paired subset only."
         )
 
+    # Hint when scores look pathological — usually means the wrong rubric
+    # is being applied to the data.
+    if avg_a < 1.6 and avg_b < 1.6:
+        _notice(
+            "Both averages are at or near 1/5. This usually means the rubric "
+            "doesn't fit your data. Try `scoring_method: \"rubric\"` (generic "
+            "semantic overlap, domain-agnostic) instead of `\"rubric_support\"` "
+            "if you're not evaluating customer-support replies. The bundled "
+            "demo uses `rubric_support` because the cases are support-flavoured."
+        )
+
     cols = st.columns(4)
     quality_html = (
         f'{avg_a}<span class="ef-metric-arrow">→</span>{avg_b}'
@@ -937,6 +948,12 @@ def main() -> None:
     st.session_state["current_dataset"] = dataset
 
     _section("03", "Variants", meta=f"mode: {mode.lower()}")
+    st.caption(
+        "Prompts below are saved with the run for traceability. "
+        "EvalForge v1 does not regenerate outputs &mdash; it scores the "
+        "**outputs** you provide against `expected` from the dataset. "
+        "Edit the **outputs** (not the prompt) to see scores change.",
+    )
     col_a, col_b = st.columns(2)
 
     if mode == "Prompt vs Prompt":

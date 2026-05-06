@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Set, Tuple
 
 REQUIRED_DATASET_FIELDS = {"id", "input", "expected", "category", "scoring_method"}
 REQUIRED_OUTPUT_FIELDS = {"case_id", "output"}
-ALLOWED_SCORING_METHODS = {"rubric", "exact_match", "contains"}
+ALLOWED_SCORING_METHODS = {"rubric", "rubric_support", "exact_match", "contains"}
 
 _LINE_PREVIEW_CHARS = 80
 

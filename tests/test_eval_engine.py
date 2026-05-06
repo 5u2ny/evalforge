@@ -107,13 +107,13 @@ def test_decision_memo_default_risks_when_no_regressions():
 # -- run_eval (small synthetic) ------------------------------------------
 
 
-def _ds(*ids):
+def _ds(*ids, scoring_method="rubric_support"):
     return [{
         "id": i,
         "input": f"input {i}",
         "expected": "Empathetic apology, ask for order number.",
         "category": "support_complaint",
-        "scoring_method": "rubric",
+        "scoring_method": scoring_method,
     } for i in ids]
 
 
