@@ -44,6 +44,17 @@ AI teams ship prompt and model changes weekly. Most changes are not evaluated ag
 - Decision clarity: every run ends with a single, justified recommendation.
 - Category coverage: failed-cases explorer surfaces every case where B underperforms A.
 
+## Eval modes (UX contract)
+
+The UI surfaces two explicit modes at the top of the page. They are mutually exclusive — there is no path to silently mix bundled outputs with a custom dataset.
+
+- **Demo Mode.** Uses bundled `data/golden_dataset.jsonl`, `data/sample_outputs_a.jsonl`, `data/sample_outputs_b.jsonl`. Clearly labelled as sample data, not live generation. Inline editor lets the user override individual case outputs to feel the iteration loop.
+- **Custom Eval Mode.** Requires the user to upload a dataset JSONL **and** both Variant A / Variant B output JSONL files. The bundled paths are not exposed. Validation errors block the run if any output `case_id` is missing from the dataset.
+
+Prompt text is **metadata** in v1. The product evaluates outputs you provide; it does not generate outputs from a prompt. The UI states this explicitly near every prompt textarea. To test a new prompt, the user generates outputs externally (any local model, any chat UI copy-paste), saves them as JSONL, and uploads them.
+
+In Model vs Model, the labels are renamed from "Model A / Model B" to **Output Source A / Output Source B** to keep the metadata-only contract honest — EvalForge is not invoking those models, it is comparing outputs the user generated.
+
 ## V1 scope
 
 - Bundled golden dataset of 24 cases across 9 categories.

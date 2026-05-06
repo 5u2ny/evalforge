@@ -7,9 +7,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
 
-REQUIRED_DATASET_FIELDS = {"id", "input", "expected", "category", "scoring_method"}
+REQUIRED_DATASET_FIELDS = {"id", "input", "expected"}
+OPTIONAL_DATASET_FIELDS = {"category", "scoring_method"}
 REQUIRED_OUTPUT_FIELDS = {"case_id", "output"}
 ALLOWED_SCORING_METHODS = {"rubric", "rubric_support", "exact_match", "contains"}
+
+DEFAULT_CATEGORY = "uncategorized"
+DEFAULT_SCORING_METHOD = "rubric"
 
 _LINE_PREVIEW_CHARS = 80
 
@@ -73,7 +77,8 @@ def validate_dataset(rows: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
         if case_id in seen_ids:
             errors.append(f"Row {i}: duplicate id '{case_id}'")
         seen_ids.add(case_id)
-        if row["scoring_method"] not in ALLOWED_SCORING_METHODS:
+        # scoring_method is optional; only validate when present.
+        if "scoring_method" in row and row["scoring_method"] not in ALLOWED_SCORING_METHODS:
             errors.append(
                 f"Row {i} ({case_id}): unknown scoring_method "
                 f"'{row['scoring_method']}' (allowed: {sorted(ALLOWED_SCORING_METHODS)})"

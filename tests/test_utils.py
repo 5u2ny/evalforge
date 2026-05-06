@@ -67,6 +67,31 @@ def test_validate_dataset_happy_path():
     assert ok and errors == []
 
 
+def test_validate_dataset_minimal_schema_is_accepted():
+    # Only id/input/expected are required. category and scoring_method
+    # are optional with engine-side defaults.
+    minimal = [
+        {"id": "c1", "input": "What is 2+2?", "expected": "4"},
+        {"id": "c2", "input": "Capital of France?", "expected": "Paris"},
+    ]
+    ok, errors = validate_dataset(minimal)
+    assert ok, f"unexpected errors: {errors}"
+
+
+def test_validate_dataset_missing_required_id_blocks():
+    bad = [{"input": "x", "expected": "y"}]
+    ok, errors = validate_dataset(bad)
+    assert not ok
+    assert any("missing fields" in e and "id" in e for e in errors)
+
+
+def test_validate_dataset_missing_required_input_blocks():
+    bad = [{"id": "c1", "expected": "y"}]
+    ok, errors = validate_dataset(bad)
+    assert not ok
+    assert any("missing fields" in e and "input" in e for e in errors)
+
+
 def test_validate_dataset_empty():
     ok, errors = validate_dataset([])
     assert not ok

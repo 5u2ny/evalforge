@@ -1,3 +1,16 @@
+---
+title: EvalForge
+emoji: ⚡
+colorFrom: indigo
+colorTo: yellow
+sdk: streamlit
+sdk_version: 1.30.0
+app_file: app.py
+pinned: false
+license: mit
+short_description: Open-source LLM regression testing and release-decision tool. No paid APIs.
+---
+
 # EvalForge
 
 > Stop shipping prompt changes on vibes.
@@ -83,6 +96,47 @@ Add screenshots after running locally. Suggested files: `screenshots/leaderboard
 
 The point of EvalForge is not "Variant B wins everywhere." The point is that B improves overall quality (2.21 → 3.88 average) while quietly regressing on 3 cases that a vibe-check on a few outputs would miss. EvalForge surfaces those 3 cases in the failed-cases explorer, weighs them in the decision memo, and downgrades the recommendation from SHIP to SHIP WITH CAVEAT. That is the workflow this product exists to enforce.
 
+## Eval modes
+
+EvalForge has two explicit modes, surfaced as a top-level toggle in the UI:
+
+| Mode | Dataset | Variant A outputs | Variant B outputs | When to use |
+|---|---|---|---|---|
+| **Demo Mode** | Bundled `data/golden_dataset.jsonl` | Bundled `sample_outputs_a.jsonl` | Bundled `sample_outputs_b.jsonl` | Trying the product, recording a Loom, walking a recruiter through. |
+| **Custom Eval Mode** | You upload | You upload | You upload | Real evaluation work. Bundled samples are off; case_ids must match between your dataset and your output files. |
+
+Custom Eval Mode never silently uses bundled data. If your output JSONL is missing a `case_id` the dataset has, the run is blocked with a validation error.
+
+## Dataset schema
+
+Each JSONL row needs `id`, `input`, and `expected`. `category` and `scoring_method` are optional with sensible defaults.
+
+```json
+{
+  "id": "case_001",
+  "input": "Customer message or task input",
+  "expected": "Expected behavior, answer, rubric target, or keywords",
+  "category": "support_complaint",
+  "scoring_method": "rubric_support"
+}
+```
+
+If `scoring_method` is omitted it defaults to `rubric` (generic semantic overlap, domain-agnostic). If `category` is omitted rows are grouped under `uncategorized`.
+
+## Output schema
+
+Each output JSONL row needs `case_id` (matching a dataset id) and `output`.
+
+```json
+{
+  "case_id": "case_001",
+  "output": "I'm sorry your order is late. Could you share your order number?",
+  "latency_ms": 820
+}
+```
+
+`latency_ms` is optional — when present it's averaged into the leaderboard; when absent the latency column shows `unavailable` instead of a fabricated number.
+
 ## How to run locally
 
 Requires Python 3.10 or newer.
@@ -95,6 +149,20 @@ streamlit run app.py
 ```
 
 Or via Make: `make install && make run`.
+
+## Deploy to Hugging Face Spaces (free CPU)
+
+EvalForge runs on Hugging Face Spaces with the **CPU Basic (free)** tier. No paid inference, no API keys, no `.env`, no Docker.
+
+1. Create a new Space: https://huggingface.co/new-space
+2. Set:
+   - **SDK**: Streamlit
+   - **Hardware**: CPU Basic (free)
+   - **Visibility**: Public or Private
+3. Either link this GitHub repo to the Space, or push the code to the Space's git remote (`git push https://huggingface.co/spaces/<user>/<space-name> main`).
+4. The Space picks up the YAML frontmatter at the top of this README (`sdk: streamlit`, `app_file: app.py`) and starts `streamlit run app.py` automatically.
+
+No secrets need to be configured. The Space will be reachable at `https://huggingface.co/spaces/<user>/<space-name>`.
 
 The app opens at `http://localhost:8501`. No `.env`, no API keys, no extra setup. Click **Run eval** with the defaults and you should see avg A 2.21 → avg B 3.88, 20 wins, 3 regressions, ties 1, recommendation **SHIP WITH CAVEAT**. Open the failed-cases explorer to see the 3 regressions: an over-escalated billing duplicate, a vague 90-day-return reply, and an over-promised damaged-item handoff.
 

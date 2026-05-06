@@ -626,32 +626,7 @@ def _load_default_outputs(path: Path) -> Optional[List[Dict[str, Any]]]:
 # Loaders
 # ----------------------------------------------------------------------------
 
-def dataset_loader_ui() -> Optional[List[Dict[str, Any]]]:
-    use_default = st.checkbox(
-        "Use bundled golden dataset",
-        value=True,
-        key="ds_default",
-        help="24 customer-support cases across 9 categories, shipped with the repo.",
-    )
-    rows: List[Dict[str, Any]] = []
-    if use_default:
-        if not DEFAULT_DATASET.exists():
-            st.error(f"Default dataset not found at {DEFAULT_DATASET}.")
-            return None
-        rows = load_jsonl(DEFAULT_DATASET)
-        st.caption(f"Loaded {len(rows)} cases from `{DEFAULT_DATASET.relative_to(ROOT)}`.")
-    else:
-        upload = st.file_uploader(
-            "Upload golden dataset (JSONL)", type=["jsonl"], key="ds_upload"
-        )
-        if upload is None:
-            st.info("Upload a JSONL dataset or check the box above to use the bundled one.")
-            return None
-        try:
-            rows = parse_jsonl_text(upload.getvalue().decode("utf-8"))
-        except ValueError as e:
-            st.error(str(e))
-            return None
+def _validate_and_return(rows: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
     ok, errors = validate_dataset(rows)
     if not ok:
         st.error("Dataset validation failed:")
@@ -661,83 +636,123 @@ def dataset_loader_ui() -> Optional[List[Dict[str, Any]]]:
     return rows
 
 
-def outputs_loader_ui(
+def demo_dataset_ui() -> Optional[List[Dict[str, Any]]]:
+    """Demo Mode: show the bundled dataset, no upload UI."""
+    if not DEFAULT_DATASET.exists():
+        st.error(f"Bundled dataset not found at {DEFAULT_DATASET}.")
+        return None
+    rows = load_jsonl(DEFAULT_DATASET)
+    st.caption(
+        f"**Demo Mode**: bundled `{DEFAULT_DATASET.relative_to(ROOT)}` "
+        f"&mdash; {len(rows)} customer-support cases. Not generated live."
+    )
+    return _validate_and_return(rows)
+
+
+def custom_dataset_ui() -> Optional[List[Dict[str, Any]]]:
+    """Custom Eval Mode: require an upload."""
+    upload = st.file_uploader(
+        "Upload golden dataset (JSONL)",
+        type=["jsonl"],
+        key="ds_upload",
+        help=(
+            "JSONL with one object per line. Required fields: `id`, `input`, "
+            "`expected`. Optional: `category`, `scoring_method` (one of "
+            "`rubric`, `rubric_support`, `exact_match`, `contains`)."
+        ),
+    )
+    if upload is None:
+        st.info("Upload a JSONL dataset to continue in Custom Eval Mode.")
+        return None
+    try:
+        rows = parse_jsonl_text(upload.getvalue().decode("utf-8"))
+    except ValueError as e:
+        st.error(str(e))
+        return None
+    st.caption(
+        f"**Custom Eval Mode**: dataset loaded with {len(rows)} cases."
+    )
+    return _validate_and_return(rows)
+
+
+def bundled_outputs_with_edit(
     label: str,
     default_path: Path,
     key_prefix: str,
     dataset: List[Dict[str, Any]],
 ) -> Optional[List[Dict[str, Any]]]:
-    use_default = st.checkbox(
-        f"Use bundled sample outputs ({default_path.name})",
-        value=True,
-        key=f"{key_prefix}_default",
-        help="Bundled sample outputs are not generated live. They ship with the repo for demonstration.",
+    """Demo Mode: load bundled outputs and offer an inline per-case editor."""
+    bundled = _load_default_outputs(default_path)
+    if bundled is None:
+        st.error(f"Bundled outputs missing at {default_path}.")
+        return None
+    st.caption(
+        f"Bundled `{default_path.name}` &mdash; {len(bundled)} sample outputs. "
+        "Not generated live."
     )
-    if use_default:
-        bundled = _load_default_outputs(default_path)
-        if bundled is None:
-            st.error(f"Default outputs missing at {default_path}.")
-            return None
-        st.caption(
-            f"Sample outputs loaded ({len(bundled)} rows). Labelled as bundled "
-            "sample data, not live generation."
+
+    bundled_by_id = {r["case_id"]: r for r in bundled}
+    edited: List[Dict[str, Any]] = []
+    any_changes = False
+
+    with st.expander(f"✎ Edit individual {label} outputs ({len(bundled)} cases)"):
+        cols = st.columns([4, 1])
+        cols[0].caption(
+            "Change any case's output to see how the score reacts. "
+            "Run the eval again after editing."
         )
-
-        # Inline editor — override any case's output without leaving the page.
-        # Edits live in session_state via the text_area key, so the run is
-        # always built from the current text-area values regardless of
-        # whether the expander is open or collapsed.
-        bundled_by_id = {r["case_id"]: r for r in bundled}
-        edited: List[Dict[str, Any]] = []
-        any_changes = False
-
-        with st.expander(f"✎ Edit individual {label} outputs ({len(bundled)} cases)"):
-            cols = st.columns([4, 1])
-            cols[0].caption(
-                "Change any case's output to see how the score reacts. "
-                "Run the eval again after editing."
-            )
-            if cols[1].button("Reset all", key=f"{key_prefix}_reset", use_container_width=True):
-                for case in dataset:
-                    k = f"{key_prefix}_edit_{case['id']}"
-                    if k in st.session_state:
-                        del st.session_state[k]
-                st.rerun()
-
+        if cols[1].button("Reset all", key=f"{key_prefix}_reset", use_container_width=True):
             for case in dataset:
-                cid = case["id"]
-                base = bundled_by_id.get(cid, {"case_id": cid, "output": ""})
-                bundled_text = base.get("output", "")
-                new_text = st.text_area(
-                    f"{cid}  ·  {case.get('category', '')}",
-                    value=bundled_text,
-                    key=f"{key_prefix}_edit_{cid}",
-                    height=72,
-                    help=(
-                        f"Input: {case.get('input', '')}\n\n"
-                        f"Expected: {case.get('expected', '')}"
-                    ),
-                )
-                edited_row = {"case_id": cid, "output": new_text}
-                if "latency_ms" in base:
-                    edited_row["latency_ms"] = base["latency_ms"]
-                edited.append(edited_row)
-                if new_text != bundled_text:
-                    any_changes = True
+                k = f"{key_prefix}_edit_{case['id']}"
+                if k in st.session_state:
+                    del st.session_state[k]
+            st.rerun()
 
-        if any_changes:
-            st.caption(
-                f"📝 {label} has unsaved edits to bundled outputs. "
-                "Run the eval to see updated scores."
+        for case in dataset:
+            cid = case["id"]
+            base = bundled_by_id.get(cid, {"case_id": cid, "output": ""})
+            bundled_text = base.get("output", "")
+            new_text = st.text_area(
+                f"{cid}  ·  {case.get('category', '')}",
+                value=bundled_text,
+                key=f"{key_prefix}_edit_{cid}",
+                height=72,
+                help=(
+                    f"Input: {case.get('input', '')}\n\n"
+                    f"Expected: {case.get('expected', '')}"
+                ),
             )
-            return edited
-        return bundled
+            edited_row = {"case_id": cid, "output": new_text}
+            if "latency_ms" in base:
+                edited_row["latency_ms"] = base["latency_ms"]
+            edited.append(edited_row)
+            if new_text != bundled_text:
+                any_changes = True
 
+    if any_changes:
+        st.caption(
+            f"📝 {label} has unsaved edits to bundled outputs. "
+            "Run the eval to see updated scores."
+        )
+        return edited
+    return bundled
+
+
+def custom_outputs_ui(
+    label: str,
+    key_prefix: str,
+    dataset: List[Dict[str, Any]],
+) -> Optional[List[Dict[str, Any]]]:
+    """Custom Eval Mode: require user to provide outputs (upload, paste, or type)."""
     mode = st.radio(
         f"Provide {label} outputs via",
         options=["Upload JSONL", "Paste JSONL", "Manual entry"],
         horizontal=True,
         key=f"{key_prefix}_mode",
+        help=(
+            "Each row needs `case_id` matching a dataset id and `output` text. "
+            "Optional `latency_ms`."
+        ),
     )
     if mode == "Upload JSONL":
         upload = st.file_uploader(
@@ -758,6 +773,7 @@ def outputs_loader_ui(
             f"Paste {label} JSONL (one object per line)",
             height=160,
             key=f"{key_prefix}_paste",
+            placeholder='{"case_id": "case_001", "output": "…"}',
         )
         if not text.strip():
             return None
@@ -768,14 +784,17 @@ def outputs_loader_ui(
             return None
 
     # Manual entry
-    st.caption("Manual entry — type an output for each case in the dataset.")
+    st.caption(
+        "Manual entry — type an output for each case in the dataset. "
+        "Empty cells are skipped (and will fail validation if a case has no output)."
+    )
     rows: List[Dict[str, Any]] = []
     for case in dataset:
         out = st.text_area(
             f"{case['id']} — {case.get('category', '')}",
             key=f"{key_prefix}_manual_{case['id']}",
             height=80,
-            help=case["input"],
+            help=f"Input: {case.get('input', '')}\nExpected: {case.get('expected', '')}",
         )
         if out.strip():
             rows.append({"case_id": case["id"], "output": out})
@@ -969,6 +988,16 @@ def render_results_table(result: Dict[str, Any]) -> None:
 # Main
 # ----------------------------------------------------------------------------
 
+PROMPT_METADATA_NOTE = (
+    "**About prompts in v1.** Prompt text is tracked as experiment metadata. "
+    "EvalForge does **not** generate model outputs. To test a new prompt, "
+    "generate outputs from any model yourself, save them as JSONL "
+    "(`{\"case_id\": \"…\", \"output\": \"…\"}` per line), then upload them "
+    "as Variant A and Variant B outputs. To change scores, edit the **outputs**, "
+    "not the prompt."
+)
+
+
 def main() -> None:
     st.set_page_config(
         page_title="EvalForge",
@@ -979,95 +1008,161 @@ def main() -> None:
     _inject_theme()
     _hero()
 
-    # ---- Setup -----------------------------------------------------------
+    # ---- 01 Eval mode ----------------------------------------------------
 
-    _section("01", "Comparison mode")
-    mode = st.selectbox(
+    _section("01", "Eval mode")
+    eval_mode = st.radio(
+        "Eval mode",
+        options=["Demo Mode", "Custom Eval Mode"],
+        index=0,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="eval_mode",
+        help=(
+            "Demo Mode runs on the bundled sample dataset and outputs. "
+            "Custom Eval Mode requires you to upload your own dataset and "
+            "both variant output files — no bundled fallback."
+        ),
+    )
+    is_demo = eval_mode == "Demo Mode"
+    if is_demo:
+        st.caption(
+            "**Demo Mode** &mdash; using bundled sample dataset and sample outputs. "
+            "These are not generated live."
+        )
+    else:
+        st.caption(
+            "**Custom Eval Mode** &mdash; using your uploaded dataset and outputs. "
+            "Bundled samples are off; case_ids must match between your dataset "
+            "and your output files."
+        )
+
+    # ---- 02 Comparison mode ---------------------------------------------
+
+    _section("02", "Comparison mode")
+    cmp_mode = st.selectbox(
         "Comparison mode",
         ["Prompt vs Prompt", "Model vs Model", "Custom Variant Comparison"],
         index=0,
         label_visibility="collapsed",
-        help="All three modes use the same eval engine. Only the labels and inputs differ.",
+        help="All three comparison modes use the same eval engine. Only the labels and inputs differ.",
     )
 
-    _section("02", "Dataset")
-    dataset = dataset_loader_ui()
+    # ---- 03 Dataset ------------------------------------------------------
+
+    _section("03", "Dataset")
+    if is_demo:
+        dataset = demo_dataset_ui()
+    else:
+        dataset = custom_dataset_ui()
     if dataset is None:
         st.stop()
     st.session_state["current_dataset"] = dataset
 
-    _section("03", "Variants", meta=f"mode: {mode.lower()}")
-    st.caption(
-        "Prompts below are saved with the run for traceability. "
-        "EvalForge v1 does not regenerate outputs &mdash; it scores the "
-        "**outputs** you provide against `expected` from the dataset. "
-        "To change scores, expand **✎ Edit individual outputs** under each "
-        "variant and tweak the case-level outputs directly, or upload a new "
-        "JSONL.",
-    )
+    # ---- 04 Variants -----------------------------------------------------
+
+    _section("04", "Variants", meta=f"comparison: {cmp_mode.lower()}")
+    st.caption(PROMPT_METADATA_NOTE)
     col_a, col_b = st.columns(2)
 
-    if mode == "Prompt vs Prompt":
+    def load_outputs(label: str, default_path: Path, key_prefix: str):
+        if is_demo:
+            return bundled_outputs_with_edit(label, default_path, key_prefix, dataset)
+        return custom_outputs_ui(label, key_prefix, dataset)
+
+    if cmp_mode == "Prompt vs Prompt":
         with col_a:
             st.markdown("**Variant A**")
-            name_a = st.text_input("Source name", value="prompt_a", key="name_a", label_visibility="collapsed")
+            name_a = st.text_input(
+                "Variant A label", value="prompt_a", key="name_a",
+                label_visibility="collapsed",
+            )
             prompt_a = st.text_area(
                 "Prompt A",
-                value=_read_text(DEFAULT_PROMPT_A),
+                value=_read_text(DEFAULT_PROMPT_A) if is_demo else "",
                 height=180,
                 key="prompt_a",
+                placeholder="Paste the prompt used to generate Variant A outputs.",
             )
-            outputs_a = outputs_loader_ui("Variant A", DEFAULT_OUTPUTS_A, "out_a", dataset)
+            outputs_a = load_outputs("Variant A", DEFAULT_OUTPUTS_A, "out_a")
         with col_b:
             st.markdown("**Variant B**")
-            name_b = st.text_input("Source name", value="prompt_b", key="name_b", label_visibility="collapsed")
+            name_b = st.text_input(
+                "Variant B label", value="prompt_b", key="name_b",
+                label_visibility="collapsed",
+            )
             prompt_b = st.text_area(
                 "Prompt B",
-                value=_read_text(DEFAULT_PROMPT_B),
+                value=_read_text(DEFAULT_PROMPT_B) if is_demo else "",
                 height=180,
                 key="prompt_b",
+                placeholder="Paste the prompt used to generate Variant B outputs.",
             )
-            outputs_b = outputs_loader_ui("Variant B", DEFAULT_OUTPUTS_B, "out_b", dataset)
-    elif mode == "Model vs Model":
+            outputs_b = load_outputs("Variant B", DEFAULT_OUTPUTS_B, "out_b")
+        st.caption(
+            "Prompt text is saved with the run, but scoring compares the "
+            "supplied outputs. If you change Prompt B, you must also upload "
+            "outputs that were generated with Prompt B."
+        )
+
+    elif cmp_mode == "Model vs Model":
         st.markdown("**Shared prompt**")
         shared_prompt = st.text_area(
-            "Prompt used for both models",
-            value=_read_text(DEFAULT_PROMPT_B),
+            "Prompt used for both output sources",
+            value=_read_text(DEFAULT_PROMPT_B) if is_demo else "",
             height=180,
             key="shared_prompt",
             label_visibility="collapsed",
+            placeholder="Paste the prompt that was used for both output sources.",
+        )
+        st.caption(
+            "**Output Source A** and **Output Source B** are labels for "
+            "uploaded output sets. EvalForge does not call models in v1."
         )
         with col_a:
-            st.markdown("**Model A**")
-            name_a = st.text_input("Model A name", value="model_a", key="name_a", label_visibility="collapsed")
-            outputs_a = outputs_loader_ui("Model A", DEFAULT_OUTPUTS_A, "out_a", dataset)
+            st.markdown("**Output Source A**")
+            name_a = st.text_input(
+                "Output Source A name", value="output_source_a",
+                key="name_a", label_visibility="collapsed",
+            )
+            outputs_a = load_outputs("Output Source A", DEFAULT_OUTPUTS_A, "out_a")
         with col_b:
-            st.markdown("**Model B**")
-            name_b = st.text_input("Model B name", value="model_b", key="name_b", label_visibility="collapsed")
-            outputs_b = outputs_loader_ui("Model B", DEFAULT_OUTPUTS_B, "out_b", dataset)
+            st.markdown("**Output Source B**")
+            name_b = st.text_input(
+                "Output Source B name", value="output_source_b",
+                key="name_b", label_visibility="collapsed",
+            )
+            outputs_b = load_outputs("Output Source B", DEFAULT_OUTPUTS_B, "out_b")
         prompt_a = shared_prompt
         prompt_b = shared_prompt
+
     else:  # Custom Variant Comparison
         with col_a:
             st.markdown("**Variant A**")
-            name_a = st.text_input("Variant A name", value="variant_a", key="name_a", label_visibility="collapsed")
+            name_a = st.text_input(
+                "Variant A name", value="variant_a",
+                key="name_a", label_visibility="collapsed",
+            )
             prompt_a = st.text_area(
                 "Prompt A (optional)",
-                value=_read_text(DEFAULT_PROMPT_A),
+                value=_read_text(DEFAULT_PROMPT_A) if is_demo else "",
                 height=140,
                 key="prompt_a",
             )
-            outputs_a = outputs_loader_ui("Variant A", DEFAULT_OUTPUTS_A, "out_a", dataset)
+            outputs_a = load_outputs("Variant A", DEFAULT_OUTPUTS_A, "out_a")
         with col_b:
             st.markdown("**Variant B**")
-            name_b = st.text_input("Variant B name", value="variant_b", key="name_b", label_visibility="collapsed")
+            name_b = st.text_input(
+                "Variant B name", value="variant_b",
+                key="name_b", label_visibility="collapsed",
+            )
             prompt_b = st.text_area(
                 "Prompt B (optional)",
-                value=_read_text(DEFAULT_PROMPT_B),
+                value=_read_text(DEFAULT_PROMPT_B) if is_demo else "",
                 height=140,
                 key="prompt_b",
             )
-            outputs_b = outputs_loader_ui("Variant B", DEFAULT_OUTPUTS_B, "out_b", dataset)
+            outputs_b = load_outputs("Variant B", DEFAULT_OUTPUTS_B, "out_b")
 
     if outputs_a is None or outputs_b is None:
         st.info("Provide outputs for both variants to run the eval.")
