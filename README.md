@@ -17,6 +17,10 @@ short_description: Open-source LLM regression testing and release-decision tool.
 
 An open-source LLM regression testing and release-decision tool for AI PMs and prompt owners. EvalForge compares two prompt or model variants against a golden dataset and produces a release recommendation backed by quality, regressions, and category-level reliability. No paid APIs. No API keys. No auth. No database.
 
+## Portfolio Context
+
+This repo is product judgment turned into software. It connects to my resume experience designing GPT-3.5 safety constraints, strict JSON prompt schemas, and RICE-based feature prioritization. EvalForge shows how I evaluate AI changes with repeatable scoring, category-level regression analysis, and a release memo instead of subjective prompt testing.
+
 ## The problem
 
 Every AI team has the same daily problem. Someone tweaks a prompt. The change ships. A different feature regresses three days later and nobody notices. LLM outputs are non-deterministic, so eyeballing a few cases is not a release gate. The current workflow is "paste a few examples in the playground, read the answers, ship on vibes." Quality regresses silently.
